@@ -1,97 +1,191 @@
-# Wifi Sense
-
-**Wifi Sense** is a low-level wireless packet analyzer and radio wave perturbation sensor written in Python. It provides command-line capabilities for:
-1. Programmatically managing and connecting to WiFi networks.
-2. Sniffing and dissecting active network packet streams in real-time.
-3. Conducting high-frequency radio signal sensing (amplitude & time propagation jitter analysis) to detect wave reflections or environment physical variations.
-4. Injecting active burst packets (ping trains) to stimulate and evaluate link stability under synthetic loads.
+# 📡 Wifi Sense
+> **3D Electromagnetic Multipath Radar, Wave Oscilloscope, and Wireless Packet Analyzer Console**
 
 ---
 
-## Technical Concept: Standard Hardware "WiFi Sensing"
-
-In professional environments, true WiFi sensing involves capturing Channel State Information (CSI) phases directly from specialized WiFi adapter chips. Since standard operating systems and network card drivers lock down CSI data access:
-
-**Wifi Sense** utilizes high-fidelity mathematical proxy metrics:
-* **High-Frequency RSSI Sampling**: Measures real-time wave amplitude fading. Movement or wave reflection changes the multipath fading profile, causing observable spikes/drops in RSSI.
-* **Round-Trip-Time (RTT) Jitter Analysis**: Measures packet time-of-arrival variance. Blockage or reflections in the wave path trigger packets to scatter or retransmit, causing subtle delays in RTT.
-* **STA/LTA Anomaly Trigger**: Applies a seismological STA/LTA (Short-Term Average vs Long-Term Average) ratio trigger. If short-term signal parameters deviate rapidly from the long-term running baseline (exceeding a threshold), a **physical disturbance/reflection event** is flagged.
+![Wifi Sense 3D Electromagnetic Radar Console](assets/wifi_sense_radar.png)
 
 ---
 
-## Installation & Requirements
+## 🌌 Overview
+**Wifi Sense** is a low-level wireless electromagnetic packet analyzer and high-frequency radio wave perturbation sensor written in Python. Since standard operating systems lock down low-level Channel State Information (CSI) phase data, **Wifi Sense** utilizes high-fidelity mathematical proxy metrics (High-Frequency RSSI Sampling and Round-Trip-Time Jitter) mapped to a **3D perspective projection radar coordinate system** and a **1D delay spectrometer** to detect wave reflections, multipath fading anomalies, and physical environmental movements.
 
-### System Pre-requisites
-1. **Windows OS** (optimized for native `netsh wlan` mechanics).
-2. **Npcap** or **WinPcap** installed (required by Scapy for packet sniffing). Download Npcap from: https://npcap.com/ (Ensure you select "Install Npcap in WinPcap API-compatible Mode" during installation).
+By combining connected-component analysis with **Polar Grid DBSCAN (Density-Based Spatial Clustering)**, it identifies repeating echoes bouncing off static obstacles, dynamically "uniting" them as glowing curved 3D holographic wireframe meshes (Echo Walls) in the 3D Radar Scope.
 
-### Installation Steps
-Initialize a virtual environment or install the dependencies:
+---
+
+## ⚡ Key Capabilities
+
+*   🔌 **Programmatic Wifi Orchestration**: Automatic scanning of surrounding networks and individual BSSID channels, registration of dynamic WPA2-PSK/Open XML profiles, and link health diagnosis using Windows `netsh`.
+*   🚀 **High-Frequency Wave Sensing**: Rapid telemetry polling (up to 50 Hz) tracking amplitude fading (RSSI) and delay spreads (RTT) to construct propagation envelopes.
+*   🌋 **Seismological Anomaly Trigger**: Short-Term Average / Long-Term Average (STA/LTA) ratio calculations to flag physical movements or sudden path blockages when deviations exceed the 8% fluctuation threshold.
+*   📡 **Holographic 3D Echo Walls**: Advanced spatial clustering (PGDC) to group repeating reflection coordinates into physical curved wall segments consisting of a Top Spine, Bottom Spine, Vertical Ribs, and Diagonal Bracing Trusses.
+*   📊 **1D Delay Spectrometer**: Multi-dimensional coordinate-calibrated tracking (0.0m to 6.0m):
+    *   *Density Histogram*: Counts and categorizes distance reflections in 0.1m intervals.
+    *   *Scrolling Time Waterfall*: Visualizes reflection ages (0s to 15s) with a dynamic color-fade path (Teal $\to$ Cyan $\to$ Purple $\to$ Deep Violet).
+*   🕸️ **Low-Level Packet Dissector**: Real-time traffic sniffer powered by Scapy, parsing ARP, IP/IPv6, TCP, UDP, DNS, and ICMP frames with host breakdown reports.
+*   🥊 **Active Medium Prober**: High-speed ping injection trains to evaluate channel jitter, loss, and diagnose multipath scattering under heavy loads.
+
+---
+
+## 🧠 Technical Concept & Math Model
+
+### 1. Multipath Anomaly Detection (STA/LTA)
+The engine maintains a sliding window of historical signal values. It calculates the ratio between the **Short-Term Average (STA)** (capturing instantaneous changes) and the **Long-Term Average (LTA)** (capturing stable ambient background signal strength):
+
+$$\text{Ratio} = \frac{\text{Mean}(\text{window}_{\text{STA}})}{\text{Mean}(\text{window}_{\text{LTA}})} - 1.0$$
+
+When the ratio exceeds the activation threshold ($\ge 0.08$), the system detects a **wave perturbation event** caused by physical path obstruction or reflection fluctuations.
+
+### 2. Polar Grid Density Clustering (PGDC)
+Instead of expensive DBSCAN operations over 1500 points in raw space at 30 FPS, **Wifi Sense** optimizes performance via connected components on a customized polar coordinate grid:
+*   **Grid cell resolution**: $s_r = 0.15\text{ m}$ (distance bin) and $s_{\theta} = 0.20\text{ rad}$ ($\approx 11.5^\circ$ angular bin).
+*   **Cyclical Shift Angle**: Computes the largest angular gap to shift angles cyclically:
+    $$\theta_{\text{shifted}} = (\theta - \theta_{\text{split}}) \pmod{2\pi}$$
+    This resolves the wrap-around boundary problem at $0 \to 2\pi$, ensuring curved structures aren't torn in half.
+*   **Mesh Unification Threshold**: Groups with a density of $N \ge 12$ points formulate a stable wall segment, projecting top vertices at $Y = 15$ and bottom vertices at $Y = -15$.
+
+---
+
+## 💻 GUI Interface Guide
+
+The visual dashboard features a three-canvas glassmorphic cyberpunk layout:
+
+1.  **Electromagnetic Oscilloscope (Left)**: Simulates the primary carrier wave (neon teal) and the secondary multipath reflection wave (cyan/magenta). Perturbations insert live high-frequency noise and chaotic jitter spikes.
+2.  **3D Radar Scope (Center)**: Renders the active reflection cloud in 3D perspective projection. Concentric circles define range thresholds (1m, 2m, 3m, 5m). Stable walls are drawn as glowing pink meshes with zigzag diagonal trusses, while emerging boundaries are rendered as cyan dashed wires.
+3.  **1D Delay Spectrometer (Right)**: Renders the vertical depth histogram and a horizontal time waterfall. Displays peak labels synchronized with 3D centroids (e.g. `Peak: 2.1m (32 reps)`).
+4.  **Calibration Panel (Far Right)**:
+    *   *Sensing Rate Scale*: Fine-tunes high-frequency background polling loops (5 Hz to 50 Hz).
+    *   *Noise Filter Scale*: Dynamically controls low-pass Exponential Moving Average ($\alpha \in [0.05, 1.0]$) smoothing.
+    *   *Playback Control*: A dedicated master **PAUSE CAPTURE** button freezes scans instantly to isolate current telemetry readings.
+    *   *Camera Presets*: Buttons to trigger Zoom (+/-), Reset camera, and toggle Auto-Rotate sweeping.
+
+---
+
+## 🛠️ Installation & Setup
+
+### Prerequisites
+1.  **OS**: Windows 10/11 (utilizes native `netsh` system calls).
+2.  **Packet Injection Provider**: **Npcap** or **WinPcap** must be installed.
+    *   *Download Npcap*: [https://npcap.com/](https://npcap.com/)
+    *   *Important*: Ensure you select the checkbox **"Install Npcap in WinPcap API-compatible Mode"** during installation.
+3.  **Python Environment**: Python 3.10+ is recommended.
+
+### Installation
+1.  Clone the repository and enter the directory:
+    ```bash
+    git clone https://github.com/yourusername/wifi_sense.git
+    cd wifi_sense
+    ```
+2.  Install dependencies:
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+---
+
+## 🚀 Usage Guide
+
+The application entry point is `run.py`, router-equipped with subcommands via Click:
+
+### 1. Launch 3D Retro Cyber GUI
+Opens the interactive three-canvas graphics HUD console:
 ```bash
-pip install -r requirements.txt
+python run.py gui
 ```
 
----
-
-## How to Run Commands
-
-The entry point of the application is `run.py`.
-
-### 1. Scan Available Wireless Networks
-Obtains a complete listing of surrounding SSIDs, raw signal strengths, channels, and individual BSSIDs (MAC addresses):
+### 2. Scan Surrounding Channels
+Performs a deep-plane scan of neighboring networks, compiling SSIDs, signal levels, bands, channels, and individual MAC addresses (BSSIDs):
 ```bash
 python run.py scan
 ```
 
-### 2. Connect Programmatically to a Network
-Automatically registers a temporary XML connection profile and associates with the targeted wireless endpoint:
+### 3. Connect Programmatically
+Creates an XML profile on the fly and associates the system with the targeted wireless network:
 ```bash
-python run.py connect --ssid "YourSSID" --password "YourPassword"
+python run.py connect --ssid "MyHomeWiFi" --password "secretKey123"
 ```
-*(Leave `--password` empty if the target network is open).*
+*(Omit the `--password` parameter for unsecured open access points).*
 
-### 3. Check Current Link Connection Details
-Queries the interface adapter to review current connection quality, speed metrics, SSID, MAC, and channel parameters:
+### 4. Query Link Health Status
+Inspects the active wireless interface to output standard connection properties (current adapter, band, transmission speed, SSID, channel):
 ```bash
 python run.py status
 ```
 
-### 4. Real-time Packet Sniffer & Dissector
-Captures and processes live airwave packet streams, revealing source/destination hosts, protocols, DNS queries, packet sizes, and generates a traffic breakdown:
+### 5. High-Frequency Signal Sensing
+Starts a high-speed terminal polling loop to output real-time RSSI, RTT delays, jitter, path deviation metrics, and trigger alerts:
 ```bash
-python run.py sniff --duration 30
-```
-*(Requires Administrator rights / Elevation to open raw socket capture interfaces).*
-
-### 5. High-Frequency Signal Sensing & Wave Reflection Analyzer
-Starts high-frequency polling to measure wave perturbations and track physical deviations in the surrounding environment:
-```bash
-python run.py sense --duration 60 --interval 0.1
+python run.py sense --duration 30 --interval 0.05
 ```
 
-### 6. Active Medium Prober
-Injects a high-speed train of ICMP packet bursts to stimulate the physical wireless medium. Resolves link jitter, packet loss rate, and diagnoses channel scattering:
+### 6. Low-Level Packet Sniffer
+Dissects airwave packet frames passing through the adapter. Reveals protocol flows, source/destination coordinates, and captures volume breakdown statistics:
 ```bash
-python run.py probe --packets 100 --delay 0.02
+python run.py sniff --duration 20
+```
+*(Requires Administrator/Elevated privileges to bind raw socket capture interfaces).*
+
+### 7. Active Medium Prober
+Stimulates the channel by injecting UDP/ICMP load trains. Evaluates packet delivery rate and diagnoses channel quality:
+```bash
+python run.py probe --packets 150 --delay 0.01
 ```
 
 ---
 
-## Project Structure
+## 🧪 Verification & Unit Testing
+
+A robust, mock-equipped test suite is included in `tests/test_wifi_sense.py` verifying:
+*   Dynamic XML profile builders for WPA2-PSK and Open networks.
+*   Windows `netsh BSSID` output parser for nested channels and signal conversion.
+*   Variance, mean, and standard deviation calculations.
+*   STA/LTA seismological triggers under sudden network drops.
+*   **PGDC Spatial Clustering Math**: Correct connected components clustering, noise rejection, and average centroid calculations.
+*   **Multi-Cluster Separation**: Boundary distinction for multiple echoing walls located in different directions.
+
+To run the test suite, execute:
+```bash
+python -m unittest tests/test_wifi_sense.py
+```
+**Output:**
+```text
+......
+----------------------------------------------------------------------
+Ran 6 tests in 0.087s
+
+OK
+```
+
+---
+
+## 📁 Project Architecture
+
 ```text
 wifi_sense/
 │
-├── wifi_sense/                # Main package folder
-│   ├── __init__.py            # Versioning and package initialization
-│   ├── connection.py          # WiFi association and netsh interface parser
-│   ├── sensing.py             # Signal sensing engine and STA/LTA trigger math
-│   ├── sniffer.py             # Scapy packet dissection and statistics collector
-│   └── prober.py              # Packet train channel injection and diagnosis
+├── wifi_sense/                # Main package directory
+│   ├── __init__.py            # Module declarations
+│   ├── connection.py          # WLAN network association & status parser
+│   ├── sensing.py             # Telemetry engine & anomaly tracking
+│   ├── sniffer.py             # Scapy frame dissection & data logging
+│   ├── prober.py              # UDP/ICMP packet prober & channel diagnoser
+│   └── gui.py                 # Tkinter 3D radar scope & waves dashboard
 │
 ├── tests/                     # Verification test modules
-│   └── test_wifi_sense.py     # Unit tests verifying scanner, math, and configs
+│   └── test_wifi_sense.py     # Automated unit tests
 │
-├── requirements.txt           # Dependency listings
-├── run.py                     # Command-line router (Click subcommands)
-└── README.md                  # This documentation file
+├── assets/                    # Graphical documentation resources
+│   └── wifi_sense_radar.png   # 3D Radar UI Mockup
+│
+├── requirements.txt           # Python dependency listings
+├── run.py                     # Command-line routing console
+└── README.md                  # Comprehensive documentation
 ```
+
+---
+
+## 🎨 Theme & Cyber Aesthetics
+*   **Console Palette**: Pure obsidian (`#0b0c10`), charcoal glass (`#1f2833`), vibrant teal (`#66fcf1`), bright cyan (`#00ccff`), and neon magenta/fuchsia (`#ff0055`).
+*   **Typography**: Space Mono / Courier New, optimized for tabular alignment and telemetry grid readings.
+*   **Micro-animations**: Dynamic border flashers pulsating red during alert warnings, fluid sine and noise wave simulations, and hardware-accelerated auto-rotation sweeps.
