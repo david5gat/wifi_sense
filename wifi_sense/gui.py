@@ -13,7 +13,7 @@ class WifiOscilloscopeGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Wifi Sense - 3D Radar & Wave Oscilloscope")
-        self.root.geometry("1200x700")
+        self.root.geometry("1500x700")  # Expanded width from 1200 to 1500 for the new screen
         self.root.configure(bg="#0b0c10")
         self.root.resizable(True, True)
 
@@ -46,6 +46,10 @@ class WifiOscilloscopeGUI:
         self.pan_y = 0.0  # Y-axis camera pan offset
         self.auto_rotate = True  # Enable automatic yaw sweeping
 
+        # 1D Y-Axis Delay Spectrometer Settings
+        self.reflection_history = []  # History of reflections
+        self.max_reflection_history = 1500  # Memory-bounded history buffer
+
         # Signal Calibration Parameters
         self.sensing_hz = 17.0
         self.alpha_val = 0.25
@@ -73,7 +77,7 @@ class WifiOscilloscopeGUI:
 
         title_label = tk.Label(
             self.header, 
-            text="WIFI SENSE // 3D MULTIPATH REFLECTION RADAR & OSCILLOSCOPE", 
+            text="WIFI SENSE // MULTIPATH SIGNAL ANALYZER & RADAR CONSOLE", 
             font=("Space Mono", 14, "bold"), 
             bg="#0b0c10", 
             fg="#66fcf1"
@@ -89,12 +93,13 @@ class WifiOscilloscopeGUI:
         )
         self.status_label.pack(side="right", pady=5)
 
-        # 2. Main Workspace Row (Left: Waves, Center: 3D Radar, Right: Controls & Meters)
+        # 2. Main Workspace Row (Left: Waves, Center-Left: 3D Radar, Center-Right: 1D Spectrometer, Right: Controls & Meters)
         self.workspace = tk.Frame(self.outer_frame, bg="#0b0c10")
         self.workspace.pack(fill="both", expand=True)
         self.workspace.columnconfigure(0, weight=2)  # Oscilloscope Canvas
         self.workspace.columnconfigure(1, weight=2)  # 3D Radar Canvas
-        self.workspace.columnconfigure(2, weight=1)  # Side panel HUD
+        self.workspace.columnconfigure(2, weight=2)  # 1D Spectrometer Canvas (NEW!)
+        self.workspace.columnconfigure(3, weight=1)  # Side panel HUD
         self.workspace.rowconfigure(0, weight=1)
 
         # DISPLAY 1: 2D Electromagnetic Oscilloscope (Left Canvas)
@@ -107,9 +112,9 @@ class WifiOscilloscopeGUI:
         self.canvas_wave = tk.Canvas(self.canvas_wave_container, bg="#000000", highlightthickness=0)
         self.canvas_wave.pack(fill="both", expand=True, padx=2, pady=2)
 
-        # DISPLAY 2: 3D Multipath Radar Point Cloud (Center Canvas)
+        # DISPLAY 2: 3D Multipath Radar Point Cloud (Center-Left Canvas)
         self.canvas_radar_container = tk.Frame(self.workspace, bg="#1f2833", bd=2, relief="sunken")
-        self.canvas_radar_container.grid(row=0, column=1, sticky="nsew", padx=(5, 10))
+        self.canvas_radar_container.grid(row=0, column=1, sticky="nsew", padx=(5, 5))
 
         self.lbl_radar_title = tk.Label(self.canvas_radar_container, text="[3D WAVE REFLECTION CLOUD]", font=("Space Mono", 8, "bold"), bg="#1f2833", fg="#45a29e")
         self.lbl_radar_title.pack(anchor="w", padx=5, pady=2)
@@ -117,9 +122,20 @@ class WifiOscilloscopeGUI:
         self.canvas_radar = tk.Canvas(self.canvas_radar_container, bg="#000000", highlightthickness=0)
         self.canvas_radar.pack(fill="both", expand=True, padx=2, pady=2)
 
+        # DISPLAY 3: 1D Y-Axis Spectrometer (Center-Right Canvas) (NEW!)
+        self.canvas_spec_container = tk.Frame(self.workspace, bg="#1f2833", bd=2, relief="sunken")
+        self.canvas_spec_container.grid(row=0, column=2, sticky="nsew", padx=(5, 10))
+
+        self.lbl_spec_title = tk.Label(self.canvas_spec_container, text="[1D REFLECTION DENSITY & TIMELINE]", font=("Space Mono", 8, "bold"), bg="#1f2833", fg="#45a29e")
+        self.lbl_spec_title.pack(anchor="w", padx=5, pady=2)
+
+        self.canvas_spec = tk.Canvas(self.canvas_spec_container, bg="#000000", highlightthickness=0)
+        self.canvas_spec.pack(fill="both", expand=True, padx=2, pady=2)
+
         # Bind configurations for clean resizing grid draws
         self.canvas_wave.bind("<Configure>", lambda e: self.draw_oscilloscope_grid())
         self.canvas_radar.bind("<Configure>", lambda e: self.draw_radar_grid())
+        self.canvas_spec.bind("<Configure>", lambda e: self.draw_spec_grid())
 
         # Mouse bindings for direct 3D interactive navigation
         self.canvas_radar.bind("<ButtonPress-1>", self.on_radar_click)
@@ -128,9 +144,9 @@ class WifiOscilloscopeGUI:
         self.canvas_radar.bind("<B3-Motion>", self.on_radar_drag_pan)
         self.canvas_radar.bind("<MouseWheel>", self.on_radar_scroll_zoom)
 
-        # DISPLAY 3: Interactive Controls & HUD (Right Panel)
+        # DISPLAY 4: Interactive Controls & HUD (Right Panel)
         self.side_panel = tk.Frame(self.workspace, bg="#0b0c10")
-        self.side_panel.grid(row=0, column=2, sticky="nsew")
+        self.side_panel.grid(row=0, column=3, sticky="nsew")
 
         # Digital Telemetry Readouts (Compact 2x2 Grid)
         self.readout_container = tk.LabelFrame(
@@ -434,6 +450,18 @@ class WifiOscilloscopeGUI:
         self.canvas_radar.create_line(0, cy, w, cy, fill="#0c141e", width=1, tags="grid")
         self.canvas_radar.create_line(cx, 0, cx, h, fill="#0c141e", width=1, tags="grid")
 
+    def draw_spec_grid(self):
+        """
+        Draws background grid guidelines for the 1D Y-Axis Spectrometer.
+        """
+        self.canvas_spec.delete("grid")
+        w = self.canvas_spec.winfo_width()
+        h = self.canvas_spec.winfo_height()
+        
+        # Vertical divider line separating Histogram from scrolling timeline
+        divider_x = 150
+        self.canvas_spec.create_line(divider_x, 0, divider_x, h, fill="#0c141e", width=1, tags="grid")
+
     def project_3d_point(self, x, y, z, cx, cy):
         """
         Applies a mathematical 3D-to-2D Perspective Projection matrix.
@@ -539,14 +567,16 @@ class WifiOscilloscopeGUI:
         intensity = self.current_perturbation + (self.current_rssi / 10.0)
 
         # Push to point cloud buffer
-        self.points_3d.append({
+        pt = {
             "x": x,
             "y": y,
             "z": z,
             "intensity": intensity,
             "distance": dist_m,
             "timestamp": time.time()
-        })
+        }
+        self.points_3d.append(pt)
+        self.reflection_history.append(pt)
 
         # Produce a denser cascade of reflection points when a perturbation event is active!
         if self.reflection_detected:
@@ -561,14 +591,16 @@ class WifiOscilloscopeGUI:
                 ref_y = ref_radius * math.sin(ref_phi)
                 ref_z = ref_radius * math.sin(ref_theta) * math.cos(ref_phi)
                 
-                self.points_3d.append({
+                ref_pt = {
                     "x": ref_x,
                     "y": ref_y,
                     "z": ref_z,
                     "intensity": intensity * 1.5,
                     "distance": ref_dist,
                     "timestamp": time.time()
-                })
+                }
+                self.points_3d.append(ref_pt)
+                self.reflection_history.append(ref_pt)
 
         # Prune old points to maintain memory buffers
         while len(self.points_3d) > self.max_points:
@@ -577,7 +609,7 @@ class WifiOscilloscopeGUI:
     def animate(self):
         """
         Core 30 FPS display loop.
-        Projects and draws 2D waves & 3D rotating particle clouds.
+        Projects and draws 2D waves, 3D rotating particle clouds, and 1D delay spectrometer.
         """
         if not self.running:
             return
@@ -750,6 +782,125 @@ class WifiOscilloscopeGUI:
                     hub_x, hub_y, px, py,
                     fill=color, width=1, stipple="gray25", tags="radar"
                 )
+
+        # ----------------------------------------------------
+        # DRAW DISPLAY 3: 1D Y-AXIS DENSITY SPECTROMETER (NEW!)
+        # ----------------------------------------------------
+        self.canvas_spec.delete("spec")
+        
+        w_spec = self.canvas_spec.winfo_width()
+        h_spec = self.canvas_spec.winfo_height()
+        
+        if not self.canvas_spec.find_withtag("grid"):
+            self.draw_spec_grid()
+
+        # Prune reflection history to keep only points from the last 15 seconds
+        now = time.time()
+        self.reflection_history = [pt for pt in self.reflection_history if now - pt["timestamp"] < 15.0]
+        if len(self.reflection_history) > self.max_reflection_history:
+            self.reflection_history = self.reflection_history[-self.max_reflection_history:]
+
+        # Define Y-axis bounds: 0.0m is at h_spec - 40, 6.0m is at 40
+        y_origin = h_spec - 40
+        y_top = 40
+        y_range = y_origin - y_top
+        y_scale = y_range / 6.0  # pixels per meter
+
+        # 1. Draw horizontal scale guidelines aligned with the 3D concentric rings
+        rings_meters = [1.0, 2.0, 3.0, 5.0]
+        
+        # Base 0.0m guideline
+        self.canvas_spec.create_line(10, y_origin, w_spec - 10, y_origin, fill="#0c141e", width=1, tags="spec")
+        self.canvas_spec.create_text(25, y_origin + 10, text="0.0m", font=("Space Mono", 7), fill="#3f586b", tags="spec")
+        
+        for r_m in rings_meters:
+            py = y_origin - r_m * y_scale
+            self.canvas_spec.create_line(10, py, w_spec - 10, py, fill="#0f1f2e", width=1, dash=(1, 3), tags="spec")
+            self.canvas_spec.create_text(25, py - 8, text=f"{r_m:.1f}m", font=("Space Mono", 7), fill="#3f586b", tags="spec")
+            
+        # Draw physical Y-Axis line
+        self.canvas_spec.create_line(45, y_top - 10, 45, y_origin + 10, fill="#1f2833", width=2, tags="spec")
+
+        # 2. Compute 1D histogram bins (0.1m bin size)
+        num_bins = 60
+        bins = [0] * num_bins
+        for pt in self.reflection_history:
+            d = pt["distance"]
+            idx = int(d / 0.1)
+            if 0 <= idx < num_bins:
+                bins[idx] += 1
+
+        # 3. Render density histogram bars (in left section, X from 50 to 140)
+        max_bin_count = max(bins) if len(self.reflection_history) > 0 else 1
+        if max_bin_count == 0:
+            max_bin_count = 1
+            
+        histogram_max_width = 80.0  # max horizontal width of density bars
+        
+        for i in range(num_bins):
+            d = i * 0.1
+            py = y_origin - d * y_scale
+            cnt = bins[i]
+            if cnt > 0:
+                bar_w = (cnt / max_bin_count) * histogram_max_width
+                self.canvas_spec.create_rectangle(
+                    50, py - 3, 50 + bar_w, py + 3,
+                    fill="#ff0055", outline="", tags="spec"
+                )
+
+        # Draw peak text tags next to local maxima exceeding a replication threshold
+        for i in range(1, num_bins - 1):
+            cnt = bins[i]
+            # Must be a local maximum and have at least 8 repetitions in the history window
+            if cnt > 8 and cnt > bins[i-1] and cnt > bins[i+1]:
+                d = i * 0.1
+                py = y_origin - d * y_scale
+                bar_w = (cnt / max_bin_count) * histogram_max_width
+                self.canvas_spec.create_text(
+                    55 + bar_w, py,
+                    text=f"Peak: {d:.1f}m ({cnt} reps)",
+                    font=("Space Mono", 7, "bold"),
+                    fill="#ff0055",
+                    anchor="w",
+                    tags="spec"
+                )
+
+        # 4. Render Scrolling Timeline (in right section, X from 160 to w_spec - 20)
+        timeline_start_x = 160
+        timeline_end_x = w_spec - 20
+        timeline_width = timeline_end_x - timeline_start_x
+
+        # Draw timeline axis text labels
+        self.canvas_spec.create_text(timeline_start_x, y_origin + 20, text="-15s ago", font=("Space Mono", 7), fill="#3f586b", tags="spec")
+        self.canvas_spec.create_text(timeline_end_x, y_origin + 20, text="Now (Live)", font=("Space Mono", 7), fill="#00ffcc", anchor="e", tags="spec")
+
+        for pt in self.reflection_history:
+            age = now - pt["timestamp"]
+            if age > 15.0:
+                continue
+
+            # X-axis represents time elapsed (0s is at timeline_end_x, 15s is at timeline_start_x)
+            px = timeline_end_x - (age / 15.0) * timeline_width
+            py = y_origin - pt["distance"] * y_scale
+
+            # Color-fade path representing propagation age
+            if age < 1.0:
+                color = "#00ffcc"  # Brand New (bright teal)
+            elif age < 4.0:
+                color = "#00ccff"  # Recent (cyan)
+            elif age < 8.0:
+                color = "#8b5cf6"  # Medium age (neon purple)
+            else:
+                color = "#3a1d60"  # Bounded memory tail (deep violet)
+
+            # Draw particle size denotation
+            intensity = pt["intensity"]
+            radius = max(1, min(4, int(1 + intensity * 0.05)))
+            
+            self.canvas_spec.create_oval(
+                px - radius, py - radius, px + radius, py + radius,
+                fill=color, outline="", tags="spec"
+            )
 
         # 30 FPS redraw callback (~33ms)
         self.root.after(33, self.animate)
