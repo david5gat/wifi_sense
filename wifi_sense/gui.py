@@ -13,7 +13,7 @@ class WifiOscilloscopeGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Wifi Sense - 3D Radar & Wave Oscilloscope")
-        self.root.geometry("1500x700")  # Expanded width from 1200 to 1500 for the new screen
+        self.root.geometry("1500x700")  # Three screens wide
         self.root.configure(bg="#0b0c10")
         self.root.resizable(True, True)
 
@@ -49,6 +49,7 @@ class WifiOscilloscopeGUI:
         # 1D Y-Axis Delay Spectrometer Settings
         self.reflection_history = []  # History of reflections
         self.max_reflection_history = 1500  # Memory-bounded history buffer
+        self.detected_walls = []  # Clustered static structural boundaries
 
         # Signal Calibration Parameters
         self.sensing_hz = 17.0
@@ -98,7 +99,7 @@ class WifiOscilloscopeGUI:
         self.workspace.pack(fill="both", expand=True)
         self.workspace.columnconfigure(0, weight=2)  # Oscilloscope Canvas
         self.workspace.columnconfigure(1, weight=2)  # 3D Radar Canvas
-        self.workspace.columnconfigure(2, weight=2)  # 1D Spectrometer Canvas (NEW!)
+        self.workspace.columnconfigure(2, weight=2)  # 1D Spectrometer Canvas
         self.workspace.columnconfigure(3, weight=1)  # Side panel HUD
         self.workspace.rowconfigure(0, weight=1)
 
@@ -122,7 +123,7 @@ class WifiOscilloscopeGUI:
         self.canvas_radar = tk.Canvas(self.canvas_radar_container, bg="#000000", highlightthickness=0)
         self.canvas_radar.pack(fill="both", expand=True, padx=2, pady=2)
 
-        # DISPLAY 3: 1D Y-Axis Spectrometer (Center-Right Canvas) (NEW!)
+        # DISPLAY 3: 1D Y-Axis Spectrometer (Center-Right Canvas)
         self.canvas_spec_container = tk.Frame(self.workspace, bg="#1f2833", bd=2, relief="sunken")
         self.canvas_spec_container.grid(row=0, column=2, sticky="nsew", padx=(5, 10))
 
@@ -554,7 +555,7 @@ class WifiOscilloscopeGUI:
         
         # Add angular spread based on jitter/perturbations
         jitter_angle_spread = random.uniform(-self.current_jitter*0.1, self.current_jitter*0.1)
-        theta = sweep_angle + jitter_angle_spread
+        theta = (sweep_angle + jitter_angle_spread) % (2.0 * math.pi)
         phi = random.uniform(-0.15, 0.15)  # Slightly offset from horizontal plane
         
         # Convert polar coordinates (radius, theta, phi) to Cartesian 3D (X, Y, Z)
@@ -571,6 +572,7 @@ class WifiOscilloscopeGUI:
             "x": x,
             "y": y,
             "z": z,
+            "theta": theta,
             "intensity": intensity,
             "distance": dist_m,
             "timestamp": time.time()
@@ -584,7 +586,7 @@ class WifiOscilloscopeGUI:
                 # Extra scatter points representing physical wave echoes bouncing off walls/objects
                 ref_dist = base_distance * random.uniform(0.9, 1.25)
                 ref_radius = ref_dist * 40.0
-                ref_theta = theta + random.uniform(-0.4, 0.4)
+                ref_theta = (theta + random.uniform(-0.4, 0.4)) % (2.0 * math.pi)
                 ref_phi = random.uniform(-0.3, 0.3)
                 
                 ref_x = ref_radius * math.cos(ref_theta) * math.cos(ref_phi)
@@ -595,6 +597,7 @@ class WifiOscilloscopeGUI:
                     "x": ref_x,
                     "y": ref_y,
                     "z": ref_z,
+                    "theta": ref_theta,
                     "intensity": intensity * 1.5,
                     "distance": ref_dist,
                     "timestamp": time.time()
@@ -605,6 +608,156 @@ class WifiOscilloscopeGUI:
         # Prune old points to maintain memory buffers
         while len(self.points_3d) > self.max_points:
             self.points_3d.pop(0)
+
+    def cluster_reflection_history(self):
+        """
+        Performs real-time spatial density clustering in 2D Polar Space to detect static echoing boundaries.
+        Stores them in self.detected_walls.
+        """
+        now = time.time()
+        self.reflection_history = [pt for pt in self.reflection_history if now - pt["timestamp"] < 15.0]
+        if len(self.reflection_history) > self.max_reflection_history:
+            self.reflection_history = self.reflection_history[-self.max_reflection_history:]
+
+        points = list(self.reflection_history)
+        if not points:
+            self.detected_walls = []
+            return
+
+        # Polar grid clustering (PGDC) to optimize speed and noise filtering
+        s_r = 0.15      # 15 cm distance bin size
+        s_theta = 0.20  # ~11.5 degree angular bin size
+        num_bins_theta = 32 # 2*pi / 0.20 = 31.41 bins
+        
+        # Map points to polar grid cells
+        grid = {}
+        for pt in points:
+            r = pt["distance"]
+            if "theta" in pt:
+                theta = pt["theta"]
+            else:
+                theta = math.atan2(pt["z"], pt["x"]) % (2.0 * math.pi)
+            
+            if 0.0 <= r <= 6.0:
+                b_r = int(r / s_r)
+                b_theta = int(theta / s_theta) % num_bins_theta
+                cell_key = (b_r, b_theta)
+                if cell_key not in grid:
+                    grid[cell_key] = []
+                grid[cell_key].append(pt)
+        
+        # Connected Components of populated cells
+        visited = set()
+        cell_clusters = []
+        
+        # Helper to get neighbors in the polar grid
+        def get_cell_neighbors(b_r, b_theta):
+            neighbors = []
+            # Check 8-neighborhood in grid indices
+            for dr in [-1, 0, 1]:
+                for dtheta in [-1, 0, 1]:
+                    if dr == 0 and dtheta == 0:
+                        continue
+                    nr = b_r + dr
+                    ntheta = (b_theta + dtheta) % num_bins_theta
+                    if nr >= 0:
+                        nkey = (nr, ntheta)
+                        if nkey in grid:
+                            neighbors.append(nkey)
+            return neighbors
+        
+        for cell_key in grid:
+            if cell_key not in visited:
+                comp = []
+                queue_cells = [cell_key]
+                visited.add(cell_key)
+                
+                while queue_cells:
+                    curr = queue_cells.pop(0)
+                    comp.append(curr)
+                    for nb in get_cell_neighbors(curr[0], curr[1]):
+                        if nb not in visited:
+                            visited.add(nb)
+                            queue_cells.append(nb)
+                cell_clusters.append(comp)
+        
+        # Compile spatial statistics for each cell cluster
+        min_points_threshold = 12
+        self.detected_walls = []
+        
+        for cc in cell_clusters:
+            total_pts = []
+            for cell_key in cc:
+                total_pts.extend(grid[cell_key])
+            
+            weight = len(total_pts)
+            if weight >= min_points_threshold:
+                # Extract representatives for each active angular slice in the cluster
+                by_theta = {}
+                for pt in total_pts:
+                    if "theta" in pt:
+                        theta = pt["theta"]
+                    else:
+                        theta = math.atan2(pt["z"], pt["x"]) % (2.0 * math.pi)
+                    b_theta = int(theta / s_theta) % num_bins_theta
+                    if b_theta not in by_theta:
+                        by_theta[b_theta] = []
+                    by_theta[b_theta].append(pt)
+                
+                slices = []
+                for b_theta, pts_in_slice in by_theta.items():
+                    avg_r_slice = sum(pt["distance"] for pt in pts_in_slice) / len(pts_in_slice)
+                    avg_theta_slice = sum(pt.get("theta", math.atan2(pt["z"], pt["x"]) % (2.0 * math.pi)) for pt in pts_in_slice) / len(pts_in_slice)
+                    slices.append({
+                        "r": avg_r_slice,
+                        "theta": avg_theta_slice
+                    })
+                
+                # Wrap-around sorting logic
+                active_bins = sorted(list(by_theta.keys()))
+                all_bins = set(range(num_bins_theta))
+                inactive_bins = all_bins - set(active_bins)
+                
+                if not inactive_bins:
+                    sorted_slices = sorted(slices, key=lambda s: s["theta"])
+                else:
+                    max_run = 0
+                    best_start = 0
+                    current_run = 0
+                    current_start = 0
+                    
+                    for i in range(2 * num_bins_theta):
+                        bin_idx = i % num_bins_theta
+                        if bin_idx in inactive_bins:
+                            if current_run == 0:
+                                current_start = bin_idx
+                            current_run += 1
+                        else:
+                            if current_run > max_run:
+                                max_run = current_run
+                                best_start = current_start
+                            current_run = 0
+                    if current_run > max_run:
+                        max_run = current_run
+                        best_start = current_start
+                    
+                    split_bin = (best_start + max_run // 2) % num_bins_theta
+                    split_angle = split_bin * s_theta
+                    
+                    sorted_slices = sorted(slices, key=lambda s: (s["theta"] - split_angle) % (2.0 * math.pi))
+                
+                # Centroid calculations
+                avg_r = sum(pt["distance"] for pt in total_pts) / len(total_pts)
+                avg_x = sum(pt["distance"] * math.cos(pt.get("theta", math.atan2(pt["z"], pt["x"]))) for pt in total_pts) / len(total_pts)
+                avg_z = sum(pt["distance"] * math.sin(pt.get("theta", math.atan2(pt["z"], pt["x"]))) for pt in total_pts) / len(total_pts)
+                
+                self.detected_walls.append({
+                    "distance": avg_r,
+                    "weight": weight,
+                    "slices": sorted_slices,
+                    "avg_x": avg_x,
+                    "avg_z": avg_z
+                })
 
     def animate(self):
         """
@@ -711,6 +864,12 @@ class WifiOscilloscopeGUI:
             self.canvas_wave.create_line(pts_b, fill=wave_b_color, width=1, smooth=True, tags="wave")
 
         # ----------------------------------------------------
+        # 2D SPATIAL POLAR CLUSTERING ENGINE (PGDC)
+        # ----------------------------------------------------
+        # Run real-time density components extraction
+        self.cluster_reflection_history()
+
+        # ----------------------------------------------------
         # DRAW DISPLAY 2: 3D ROTATING RADAR POINT CLOUD
         # ----------------------------------------------------
         self.canvas_radar.delete("radar")
@@ -726,6 +885,95 @@ class WifiOscilloscopeGUI:
 
         # Render 3D concentric distance circles (1m, 2m, 3m, 5m target rings)
         self.draw_3d_concentric_rings(cx, cy)
+
+        # Draw Holographic 3D Echo Wall Segment Mesh for Repeating Peaks (NEW!)
+        for wall in self.detected_walls:
+            slices = wall["slices"]
+            weight = wall["weight"]
+            dist_m = wall["distance"]
+            
+            if len(slices) < 2:
+                continue
+
+            # Highly stable walls are neon fucsia/pink, others are electric cyan/blue
+            if weight > 30:
+                color = "#ff0055"
+                dash_style = None
+                width_val = 2
+            else:
+                color = "#00ccff"
+                dash_style = (2, 4)
+                width_val = 1
+                
+            pts_bottom = []
+            pts_top = []
+            
+            # Project nodes and build top and bottom curves
+            for s in slices:
+                radius = s["r"] * 40.0
+                angle = s["theta"]
+                x = radius * math.cos(angle)
+                z = radius * math.sin(angle)
+                
+                px_b, py_b, depth_b = self.project_3d_point(x, -15.0, z, cx, cy)
+                px_t, py_t, depth_t = self.project_3d_point(x, 15.0, z, cx, cy)
+                
+                if depth_b > 20.0:
+                    pts_bottom.append((px_b, py_b))
+                if depth_t > 20.0:
+                    pts_top.append((px_t, py_t))
+            
+            # Render top and bottom curved wireframe boundaries of the wall segment
+            if len(pts_bottom) > 1:
+                self.canvas_radar.create_line(pts_bottom, fill=color, width=width_val, dash=dash_style, tags="radar")
+            if len(pts_top) > 1:
+                self.canvas_radar.create_line(pts_top, fill=color, width=width_val, dash=dash_style, tags="radar")
+                
+            # Draw vertical connecting ribs
+            for s in slices:
+                radius = s["r"] * 40.0
+                angle = s["theta"]
+                x = radius * math.cos(angle)
+                z = radius * math.sin(angle)
+                
+                px_b, py_b, depth_b = self.project_3d_point(x, -15.0, z, cx, cy)
+                px_t, py_t, depth_t = self.project_3d_point(x, 15.0, z, cx, cy)
+                
+                if depth_b > 20.0 and depth_t > 20.0:
+                    self.canvas_radar.create_line(px_b, py_b, px_t, py_t, fill=color, width=1, dash=(1, 3), tags="radar")
+
+            # Draw diagonal trusses connecting adjacent slices to build a glowing holographic mesh
+            for j in range(len(slices) - 1):
+                s1 = slices[j]
+                s2 = slices[j+1]
+                
+                x1 = s1["r"] * 40.0 * math.cos(s1["theta"])
+                z1 = s1["r"] * 40.0 * math.sin(s1["theta"])
+                px_b1, py_b1, depth_b1 = self.project_3d_point(x1, -15.0, z1, cx, cy)
+                px_t1, py_t1, depth_t1 = self.project_3d_point(x1, 15.0, z1, cx, cy)
+                
+                x2 = s2["r"] * 40.0 * math.cos(s2["theta"])
+                z2 = s2["r"] * 40.0 * math.sin(s2["theta"])
+                px_b2, py_b2, depth_b2 = self.project_3d_point(x2, -15.0, z2, cx, cy)
+                px_t2, py_t2, depth_t2 = self.project_3d_point(x2, 15.0, z2, cx, cy)
+                
+                if depth_b1 > 20.0 and depth_t1 > 20.0 and depth_b2 > 20.0 and depth_t2 > 20.0:
+                    # Zigzag diagonals for Sci-Fi laser scan look
+                    self.canvas_radar.create_line(px_t1, py_t1, px_b2, py_b2, fill=color, width=1, dash=(1, 4), tags="radar")
+            
+            # Draw billboard text label at the horizontal centroid of the cluster
+            lbl_x = wall["avg_x"] * 40.0
+            lbl_z = wall["avg_z"] * 40.0
+            px_lbl, py_lbl, depth_lbl = self.project_3d_point(lbl_x, 0.0, lbl_z, cx, cy)
+            
+            if depth_lbl > 20.0:
+                self.canvas_radar.create_text(
+                    px_lbl, py_lbl - 22,
+                    text=f"ECHO_WALL: {dist_m:.1f}m ({weight} reps)",
+                    font=("Space Mono", 7, "bold"),
+                    fill=color,
+                    tags="radar"
+                )
 
         # Draw Central WiFi Transmitting Hub Node (0,0,0)
         hub_x, hub_y, _ = self.project_3d_point(0, 0, 0, cx, cy)
@@ -784,7 +1032,7 @@ class WifiOscilloscopeGUI:
                 )
 
         # ----------------------------------------------------
-        # DRAW DISPLAY 3: 1D Y-AXIS DENSITY SPECTROMETER (NEW!)
+        # DRAW DISPLAY 3: 1D Y-AXIS DENSITY SPECTROMETER
         # ----------------------------------------------------
         self.canvas_spec.delete("spec")
         
@@ -793,12 +1041,6 @@ class WifiOscilloscopeGUI:
         
         if not self.canvas_spec.find_withtag("grid"):
             self.draw_spec_grid()
-
-        # Prune reflection history to keep only points from the last 15 seconds
-        now = time.time()
-        self.reflection_history = [pt for pt in self.reflection_history if now - pt["timestamp"] < 15.0]
-        if len(self.reflection_history) > self.max_reflection_history:
-            self.reflection_history = self.reflection_history[-self.max_reflection_history:]
 
         # Define Y-axis bounds: 0.0m is at h_spec - 40, 6.0m is at 40
         y_origin = h_spec - 40
@@ -848,22 +1090,25 @@ class WifiOscilloscopeGUI:
                     fill="#ff0055", outline="", tags="spec"
                 )
 
-        # Draw peak text tags next to local maxima exceeding a replication threshold
-        for i in range(1, num_bins - 1):
-            cnt = bins[i]
-            # Must be a local maximum and have at least 8 repetitions in the history window
-            if cnt > 8 and cnt > bins[i-1] and cnt > bins[i+1]:
-                d = i * 0.1
-                py = y_origin - d * y_scale
-                bar_w = (cnt / max_bin_count) * histogram_max_width
-                self.canvas_spec.create_text(
-                    55 + bar_w, py,
-                    text=f"Peak: {d:.1f}m ({cnt} reps)",
-                    font=("Space Mono", 7, "bold"),
-                    fill="#ff0055",
-                    anchor="w",
-                    tags="spec"
-                )
+        # Draw peak text tags dynamically synchronized from the unified 1D clustering engine
+        for wall in self.detected_walls:
+            d_avg = wall["distance"]
+            cnt = wall["weight"]
+            
+            # Find the bin index for the exact peak center
+            idx = int(d_avg / 0.1)
+            cnt_bin = bins[idx] if 0 <= idx < num_bins else cnt
+            bar_w = (cnt_bin / max_bin_count) * histogram_max_width
+            
+            py = y_origin - d_avg * y_scale
+            self.canvas_spec.create_text(
+                55 + bar_w, py,
+                text=f"Peak: {d_avg:.1f}m ({cnt} reps)",
+                font=("Space Mono", 7, "bold"),
+                fill="#ff0055",
+                anchor="w",
+                tags="spec"
+            )
 
         # 4. Render Scrolling Timeline (in right section, X from 160 to w_spec - 20)
         timeline_start_x = 160
