@@ -767,6 +767,8 @@ class WifiOscilloscopeGUI:
         if not self.running:
             return
 
+        now = time.time()
+
         # 1. Consume Telemetry Queue (only if not paused)
         if not self.paused:
             while not self.data_queue.empty():
